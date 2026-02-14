@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import webbrowser
 from analyzer import analyze_apk
 from report_generator import generate_report
 
@@ -11,20 +12,21 @@ st.subheader("Static Mobile App Security Analyzer")
 uploaded_file = st.file_uploader("Upload APK", type=["apk"])
 
 if uploaded_file:
-    with open(uploaded_file.name, "wb") as f:
+    temp_path = uploaded_file.name
+
+    with open(temp_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
     if st.button("Analyze"):
-        findings = analyze_apk(uploaded_file.name)
-        generate_report(findings)
+        findings, metadata = analyze_apk(temp_path)
+
+        generate_report(findings, metadata)
 
         st.success(f"{len(findings)} issues found!")
 
-        with open("report.html", "rb") as file:
-            st.download_button(
-                label="Download Report",
-                data=file,
-                file_name="report.html"
-            )
+        # ✅ Open HTML report automatically
+        report_path = os.path.abspath("report.html")
+        webbrowser.open(f"file://{report_path}")
 
-    os.remove(uploaded_file.name)
+    # Optional cleanup
+    # os.remove(temp_path)
