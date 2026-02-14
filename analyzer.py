@@ -38,7 +38,7 @@ def analyze_apk(apk_path):
             "The application is built in debug mode.",
             "Disable android:debuggable in production builds."
         ))
-
+    
     # 2. Dangerous permissions
     permissions = a.get_permissions()
     for perm in permissions:
@@ -65,5 +65,22 @@ def analyze_apk(apk_path):
                 "Move secrets to secure backend storage."
             ))
             break
-
+    # 4. allowBackup check
+    if a.get_attribute_value("application", "allowBackup") == "true":
+        findings.append(create_finding(
+            "Application allows backup",
+            "Medium",
+            "M2: Insecure Data Storage",
+            "Application data can be backed up via ADB.",
+            "Set android:allowBackup=\"false\" in production."
+        ))
+    # 5. Cleartext traffic check
+    if a.get_attribute_value("application", "usesCleartextTraffic") == "true":
+        findings.append(create_finding(
+            "Cleartext traffic allowed",
+            "High",
+            "M3: Insecure Communication",
+            "Application allows HTTP traffic without encryption.",
+            "Disable cleartext traffic and enforce HTTPS."
+        ))
     return findings
