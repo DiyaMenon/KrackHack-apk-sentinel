@@ -3,4 +3,6 @@ __pycache__/
 *.pyc
 *.apk
 report.html
+report.pdf
+report.json
 .vscode/

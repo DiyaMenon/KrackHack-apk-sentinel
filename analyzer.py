@@ -41,10 +41,93 @@ def create_finding(title, severity, owasp, description, remediation):
     }
 
 
+
+
 def analyze_apk(apk_path):
 
     findings = []
     a = APK(apk_path)
+    metadata = {
+    "package_name": a.get_package(),
+    "version_name": a.get_androidversion_name(),
+    "version_code": a.get_androidversion_code(),
+    "min_sdk": a.get_min_sdk_version(),
+    "target_sdk": a.get_target_sdk_version(),
+    "permissions_count": len(a.get_permissions())
+    }
+    
+    # ----------------------------------
+    # SDK Risk Analysis
+    # ----------------------------------
+
+    try:
+        min_sdk = int(a.get_min_sdk_version())
+        target_sdk = int(a.get_target_sdk_version())
+
+        if min_sdk < 23:
+            findings.append(create_finding(
+                "Outdated Minimum SDK Version",
+                "High",
+                "M1: Improper Platform Usage",
+                "Application supports very old Android versions which may lack modern security protections.",
+                "Increase minSdkVersion to 23 or above."
+            ))
+
+        if target_sdk < 30:
+            findings.append(create_finding(
+                "Outdated Target SDK Version",
+                "Medium",
+                "M1: Improper Platform Usage",
+                "Application does not target modern Android security standards.",
+                "Update targetSdkVersion to latest stable Android API."
+            ))
+
+    except:
+        pass
+    
+    # ----------------------------------
+    # Certificate Analysis (Clean Format)
+    # ----------------------------------
+
+    def format_cert_name(name_obj):
+        try:
+            if not name_obj:
+                return "N/A"
+
+            # Convert ASN1 Name to readable format
+            return ", ".join(
+                f"{attr['type']}={attr['value']}"
+                for attr in name_obj.native
+            )
+        except Exception:
+            return "Unavailable"
+
+
+    try:
+        certs = a.get_certificates()
+
+        if certs:
+            cert = certs[0]
+
+            metadata["cert_issuer"] = format_cert_name(cert.issuer)
+            metadata["cert_subject"] = format_cert_name(cert.subject)
+            metadata["cert_serial"] = str(cert.serial_number)
+            metadata["cert_valid_from"] = str(cert.not_valid_before)
+            metadata["cert_valid_to"] = str(cert.not_valid_after)
+
+        else:
+            metadata["cert_issuer"] = "Not Found"
+            metadata["cert_subject"] = "Not Found"
+            metadata["cert_serial"] = "Not Found"
+            metadata["cert_valid_from"] = "Not Found"
+            metadata["cert_valid_to"] = "Not Found"
+
+    except Exception:
+        metadata["cert_issuer"] = "Error"
+        metadata["cert_subject"] = "Error"
+        metadata["cert_serial"] = "Error"
+        metadata["cert_valid_from"] = "Error"
+        metadata["cert_valid_to"] = "Error"
 
     # ----------------------------------
     # Debuggable Check
@@ -87,25 +170,36 @@ def analyze_apk(apk_path):
             "Follow the principle of least privilege."
         ))
 
-    # ----------------------------------
-    # Exported Components
-    # ----------------------------------
+    # -----------------------
+    # Exported Components (Improved)
+    # -----------------------
+
+    package_name = a.get_package()
 
     manifest = a.get_android_manifest_xml()
 
     for tag in ["activity", "service", "receiver", "provider"]:
         for element in manifest.findall(f".//{tag}"):
+
             exported = element.get("{http://schemas.android.com/apk/res/android}exported")
             name = element.get("{http://schemas.android.com/apk/res/android}name")
 
-            if exported == "true":
-                findings.append(create_finding(
-                    f"Exported {tag} detected: {name}",
-                    "High",
-                    "M1: Improper Platform Usage",
-                    f"{tag} '{name}' is exported and may be externally accessible.",
-                    "Ensure exported components are protected with proper permissions."
-                ))
+            if exported == "true" and name:
+
+                # Convert relative names (.MainActivity)
+                if name.startswith("."):
+                    name = package_name + name
+
+                # Only flag if component belongs to app package
+                if name.startswith(package_name):
+
+                    findings.append(create_finding(
+                        f"Exported {tag} detected: {name}",
+                        "High",
+                        "M1: Improper Platform Usage",
+                        f"{tag} '{name}' is exported and may be externally accessible.",
+                        "Ensure exported components are protected with proper permissions."
+                    ))
 
     # ----------------------------------
     # allowBackup Check
@@ -252,4 +346,4 @@ def analyze_apk(apk_path):
                     "Ensure S3 buckets are private and access-controlled."
                 ))
 
-    return findings
+    return findings, metadata

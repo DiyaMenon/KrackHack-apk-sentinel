@@ -12,10 +12,10 @@ def main():
 
     apk_path = sys.argv[1]
 
-    findings = analyze_apk(apk_path)
+    findings, metadata = analyze_apk(apk_path)
     print(f"[+] {len(findings)} issues found.")
 
-    generate_report(findings)
+    generate_report(findings, metadata)
 
 if __name__ == "__main__":
     main()
