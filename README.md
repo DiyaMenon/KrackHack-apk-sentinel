@@ -4,11 +4,11 @@
 
 It analyzes APKs using static analysis techniques and generates:
 
-- 📊 Interactive HTML Security Report  
-- 📄 PDF Report  
-- 📁 JSON Report  
-- 📈 Risk Score & Security Grade  
-- 🎯 OWASP Mobile Top 10 Categorization  
+- Interactive HTML Security Report  
+- PDF Report  
+- JSON Report  
+- Risk Score & Security Grade  
+- OWASP Mobile Top 10 Categorization  
 
 ---
 
@@ -46,7 +46,7 @@ It analyzes APKs using static analysis techniques and generates:
 
 ---
 
-## 🛠 Tech Stack
+## Tech Stack
 
 - Python
 - Androguard
@@ -76,4 +76,17 @@ streamlit run app.py
 
 ### App Runs at
 http://localhost:8501
+```
+
+## The final OUTPUT
+
+![Streamlit UI](images/APK Sentinel.png)
+
+![HTML Pages](images/HTML1.png)
+
+![HTML Pages](images/HTML2.png)
+
+![HTML Pages](images/HTML3.png)
+
+
 
