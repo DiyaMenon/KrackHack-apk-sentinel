@@ -80,7 +80,7 @@ http://localhost:8501
 
 ## The final OUTPUT
 
-![Streamlit UI](images/APK Sentinel.png)
+![Streamlit](images/APK Sentinel.png)
 
 ![HTML Pages](images/HTML1.png)
 
