@@ -1,3 +1,6 @@
+import logging
+logging.basicConfig(level=logging.CRITICAL)
+logging.getLogger().setLevel(logging.CRITICAL)
 import sys
 from analyzer import analyze_apk
 from report_generator import generate_report

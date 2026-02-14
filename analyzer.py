@@ -1,8 +1,5 @@
-from androguard.misc import AnalyzeAPK
+from androguard.core.apk import APK
 import re
-import logging
-logging.getLogger("androguard").setLevel(logging.CRITICAL)
-
 DANGEROUS_PERMISSIONS = [
     "READ_SMS",
     "SEND_SMS",
@@ -25,12 +22,10 @@ def analyze_apk(apk_path):
     findings = []
 
     print("[+] Loading APK...")
-    a, d, dx = AnalyzeAPK(apk_path)
+    a = APK(apk_path)
 
-    # 1. Debuggable check (manual)
-    debuggable = a.get_attribute_value("application", "debuggable")
-
-    if debuggable == "true":
+    #Debuggable Check
+    if a.get_attribute_value("application", "debuggable") == "true":
         findings.append(create_finding(
             "Application is debuggable",
             "High",
@@ -38,8 +33,8 @@ def analyze_apk(apk_path):
             "The application is built in debug mode.",
             "Disable android:debuggable in production builds."
         ))
-    
-    # 2. Dangerous permissions
+
+    #Dangerous Permissions Check
     permissions = a.get_permissions()
     for perm in permissions:
         for dangerous in DANGEROUS_PERMISSIONS:
@@ -49,23 +44,10 @@ def analyze_apk(apk_path):
                     "Medium",
                     "M2: Insecure Data Storage",
                     f"The app requests {dangerous}.",
-                    "Ensure this permission is necessary."
+                    "Ensure this permission is absolutely necessary."
                 ))
 
-    # 3. Hardcoded secrets
-    for string_obj in dx.get_strings():
-        string_value = string_obj.get_value()
-
-        if string_value and re.search(r"(API_KEY|SECRET|TOKEN|PASSWORD)", string_value, re.IGNORECASE):
-            findings.append(create_finding(
-                "Potential hardcoded secret detected",
-                "Critical",
-                "M9: Reverse Engineering",
-                f"Suspicious string found: {string_value}",
-                "Move secrets to secure backend storage."
-            ))
-            break
-    # 4. allowBackup check
+    #allowBackup Check
     if a.get_attribute_value("application", "allowBackup") == "true":
         findings.append(create_finding(
             "Application allows backup",
@@ -74,7 +56,8 @@ def analyze_apk(apk_path):
             "Application data can be backed up via ADB.",
             "Set android:allowBackup=\"false\" in production."
         ))
-    # 5. Cleartext traffic check
+
+    #Cleartext Traffic Check
     if a.get_attribute_value("application", "usesCleartextTraffic") == "true":
         findings.append(create_finding(
             "Cleartext traffic allowed",
@@ -83,4 +66,19 @@ def analyze_apk(apk_path):
             "Application allows HTTP traffic without encryption.",
             "Disable cleartext traffic and enforce HTTPS."
         ))
+
+    #Lightweight Hardcoded Secret Scan (No Heavy dx Analysis)
+    for file_name in a.get_files():
+        if file_name.endswith(".dex"):
+            dex_data = a.get_file(file_name)
+            if re.search(rb"(API_KEY|SECRET|TOKEN|PASSWORD)", dex_data, re.IGNORECASE):
+                findings.append(create_finding(
+                    "Potential hardcoded secret detected",
+                    "Critical",
+                    "M9: Reverse Engineering",
+                    "Suspicious keyword found inside DEX file.",
+                    "Move secrets to secure backend storage."
+                ))
+                break
+
     return findings
