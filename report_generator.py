@@ -11,12 +11,21 @@ def generate_report(findings, output_file="report.html"):
 
     total_score = sum(SEVERITY_SCORES.get(f["severity"], 0) for f in findings)
 
+    # ✅ Calculate risk level FIRST
     if total_score > 25:
         risk_level = "High Risk"
     elif total_score > 10:
         risk_level = "Medium Risk"
     else:
         risk_level = "Low Risk"
+
+    # ✅ Risk color banner
+    if risk_level == "High Risk":
+        risk_color = "#ff4d4d"
+    elif risk_level == "Medium Risk":
+        risk_color = "#ff944d"
+    else:
+        risk_color = "#66cc66"
 
     critical_count = sum(1 for f in findings if f["severity"] == "Critical")
     high_count = sum(1 for f in findings if f["severity"] == "High")
@@ -33,9 +42,17 @@ def generate_report(findings, output_file="report.html"):
                 padding: 30px;
                 background-color: #f4f6f9;
             }}
-            h1 {{
-                color: #2c3e50;
+
+            .risk-banner {{
+                background-color: {risk_color};
+                color: white;
+                padding: 15px;
+                border-radius: 8px;
+                margin-bottom: 20px;
+                font-size: 20px;
+                font-weight: bold;
             }}
+
             .summary-box {{
                 background: white;
                 padding: 20px;
@@ -43,6 +60,7 @@ def generate_report(findings, output_file="report.html"):
                 border-radius: 8px;
                 box-shadow: 0 2px 5px rgba(0,0,0,0.1);
             }}
+
             table {{
                 border-collapse: collapse;
                 width: 100%;
@@ -51,28 +69,35 @@ def generate_report(findings, output_file="report.html"):
                 overflow: hidden;
                 box-shadow: 0 2px 5px rgba(0,0,0,0.1);
             }}
+
             th, td {{
                 padding: 12px;
                 text-align: left;
             }}
+
             th {{
                 background-color: #34495e;
                 color: white;
             }}
+
             tr:nth-child(even) {{
                 background-color: #f2f2f2;
             }}
         </style>
     </head>
+
     <body>
 
         <h1>📱 APK Sentinel Security Report</h1>
         <p><strong>Generated On:</strong> {datetime.now()}</p>
 
+        <div class="risk-banner">
+            Overall Risk Level: {risk_level}
+        </div>
+
         <div class="summary-box">
             <h2>Executive Summary</h2>
             <p><strong>Total Risk Score:</strong> {total_score}</p>
-            <p><strong>Overall Risk Level:</strong> {risk_level}</p>
             <p><strong>Critical:</strong> {critical_count}</p>
             <p><strong>High:</strong> {high_count}</p>
             <p><strong>Medium:</strong> {medium_count}</p>
@@ -115,7 +140,7 @@ def generate_report(findings, output_file="report.html"):
         </table>
 
         <p style="margin-top:30px; font-size: 14px; color: gray;">
-        This report was generated using static analysis techniques. 
+        This report was generated using static analysis techniques.
         Findings indicate potential security risks and should be reviewed by developers.
         </p>
 
