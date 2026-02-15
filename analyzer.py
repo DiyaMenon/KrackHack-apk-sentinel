@@ -1,5 +1,9 @@
 from androguard.core.apk import APK
 import re
+import logging
+
+# [ADDED] Suppress noisy Androguard terminal warnings for a clean live demo
+logging.getLogger("androguard.core.apk").setLevel(logging.ERROR)
 
 # ----------------------------------
 # Dangerous Permissions
@@ -30,6 +34,11 @@ IP_ADDRESS_PATTERN = rb"\b(?:\d{1,3}\.){3}\d{1,3}\b"
 FIREBASE_PATTERN = rb"\.firebaseio\.com"
 AWS_PATTERN = rb"s3\.amazonaws\.com"
 
+# [ADDED] Advanced Threat Intelligence Patterns
+INSECURE_RANDOM_PATTERN = rb"java\.util\.Random"
+SQLITE_EXEC_PATTERN = rb"(execSQL|rawQuery)\("
+LOGGING_PATTERN = rb"android\.util\.Log\.(v|d|i|w|e)"
+
 
 def create_finding(title, severity, owasp, description, remediation):
     return {
@@ -41,309 +50,369 @@ def create_finding(title, severity, owasp, description, remediation):
     }
 
 
-
-
 def analyze_apk(apk_path):
-
     findings = []
-    a = APK(apk_path)
-    metadata = {
-    "package_name": a.get_package(),
-    "version_name": a.get_androidversion_name(),
-    "version_code": a.get_androidversion_code(),
-    "min_sdk": a.get_min_sdk_version(),
-    "target_sdk": a.get_target_sdk_version(),
-    "permissions_count": len(a.get_permissions())
-    }
+    metadata = {}
     
-    # ----------------------------------
-    # SDK Risk Analysis
-    # ----------------------------------
-
+    # [ADDED] The Safety Net: Catches corrupted APKs without crashing the app
     try:
-        min_sdk = int(a.get_min_sdk_version())
-        target_sdk = int(a.get_target_sdk_version())
+        a = APK(apk_path)
+        metadata = {
+            "package_name": a.get_package(),
+            "version_name": a.get_androidversion_name(),
+            "version_code": a.get_androidversion_code(),
+            "min_sdk": a.get_min_sdk_version(),
+            "target_sdk": a.get_target_sdk_version(),
+            "permissions_count": len(a.get_permissions())
+        }
+        
+        # ----------------------------------
+        # SDK Risk Analysis
+        # ----------------------------------
 
-        if min_sdk < 23:
+        try:
+            min_sdk = int(a.get_min_sdk_version())
+            target_sdk = int(a.get_target_sdk_version())
+
+            if min_sdk < 23:
+                findings.append(create_finding(
+                    "Outdated Minimum SDK Version",
+                    "High",
+                    "M1: Improper Platform Usage",
+                    "Application supports very old Android versions which may lack modern security protections.",
+                    "Increase minSdkVersion to 23 or above."
+                ))
+
+            if target_sdk < 30:
+                findings.append(create_finding(
+                    "Outdated Target SDK Version",
+                    "Medium",
+                    "M1: Improper Platform Usage",
+                    "Application does not target modern Android security standards.",
+                    "Update targetSdkVersion to latest stable Android API."
+                ))
+
+        except:
+            pass
+        
+        # ----------------------------------
+        # Certificate Analysis (Clean Format)
+        # ----------------------------------
+
+        def format_cert_name(name_obj):
+            try:
+                if not name_obj:
+                    return "N/A"
+
+                # Convert ASN1 Name to readable format
+                return ", ".join(
+                    f"{attr['type']}={attr['value']}"
+                    for attr in name_obj.native
+                )
+            except Exception:
+                return "Unavailable"
+
+        try:
+            certs = a.get_certificates()
+
+            if certs:
+                cert = certs[0]
+
+                metadata["cert_issuer"] = format_cert_name(cert.issuer)
+                metadata["cert_subject"] = format_cert_name(cert.subject)
+                metadata["cert_serial"] = str(cert.serial_number)
+                metadata["cert_valid_from"] = str(cert.not_valid_before)
+                metadata["cert_valid_to"] = str(cert.not_valid_after)
+
+            else:
+                metadata["cert_issuer"] = "Not Found"
+                metadata["cert_subject"] = "Not Found"
+                metadata["cert_serial"] = "Not Found"
+                metadata["cert_valid_from"] = "Not Found"
+                metadata["cert_valid_to"] = "Not Found"
+
+        except Exception:
+            metadata["cert_issuer"] = "Error"
+            metadata["cert_subject"] = "Error"
+            metadata["cert_serial"] = "Error"
+            metadata["cert_valid_from"] = "Error"
+            metadata["cert_valid_to"] = "Error"
+
+        # ----------------------------------
+        # Debuggable Check
+        # ----------------------------------
+
+        if a.get_attribute_value("application", "debuggable") == "true":
             findings.append(create_finding(
-                "Outdated Minimum SDK Version",
+                "Application is debuggable",
                 "High",
                 "M1: Improper Platform Usage",
-                "Application supports very old Android versions which may lack modern security protections.",
-                "Increase minSdkVersion to 23 or above."
+                "The application is built in debug mode.",
+                "Disable android:debuggable in production builds."
             ))
 
-        if target_sdk < 30:
-            findings.append(create_finding(
-                "Outdated Target SDK Version",
-                "Medium",
-                "M1: Improper Platform Usage",
-                "Application does not target modern Android security standards.",
-                "Update targetSdkVersion to latest stable Android API."
-            ))
+        # ----------------------------------
+        # Dangerous Permissions
+        # ----------------------------------
 
-    except:
-        pass
-    
-    # ----------------------------------
-    # Certificate Analysis (Clean Format)
-    # ----------------------------------
+        permissions = a.get_permissions()
+        dangerous_count = 0
 
-    def format_cert_name(name_obj):
-        try:
-            if not name_obj:
-                return "N/A"
-
-            # Convert ASN1 Name to readable format
-            return ", ".join(
-                f"{attr['type']}={attr['value']}"
-                for attr in name_obj.native
-            )
-        except Exception:
-            return "Unavailable"
-
-
-    try:
-        certs = a.get_certificates()
-
-        if certs:
-            cert = certs[0]
-
-            metadata["cert_issuer"] = format_cert_name(cert.issuer)
-            metadata["cert_subject"] = format_cert_name(cert.subject)
-            metadata["cert_serial"] = str(cert.serial_number)
-            metadata["cert_valid_from"] = str(cert.not_valid_before)
-            metadata["cert_valid_to"] = str(cert.not_valid_after)
-
-        else:
-            metadata["cert_issuer"] = "Not Found"
-            metadata["cert_subject"] = "Not Found"
-            metadata["cert_serial"] = "Not Found"
-            metadata["cert_valid_from"] = "Not Found"
-            metadata["cert_valid_to"] = "Not Found"
-
-    except Exception:
-        metadata["cert_issuer"] = "Error"
-        metadata["cert_subject"] = "Error"
-        metadata["cert_serial"] = "Error"
-        metadata["cert_valid_from"] = "Error"
-        metadata["cert_valid_to"] = "Error"
-
-    # ----------------------------------
-    # Debuggable Check
-    # ----------------------------------
-
-    if a.get_attribute_value("application", "debuggable") == "true":
-        findings.append(create_finding(
-            "Application is debuggable",
-            "High",
-            "M1: Improper Platform Usage",
-            "The application is built in debug mode.",
-            "Disable android:debuggable in production builds."
-        ))
-
-    # ----------------------------------
-    # Dangerous Permissions
-    # ----------------------------------
-
-    permissions = a.get_permissions()
-    dangerous_count = 0
-
-    for perm in permissions:
-        for dangerous in DANGEROUS_PERMISSIONS:
-            if dangerous in perm:
-                dangerous_count += 1
-                findings.append(create_finding(
-                    f"Dangerous permission detected: {dangerous}",
-                    "Medium",
-                    "M2: Insecure Data Storage",
-                    f"The app requests {dangerous}.",
-                    "Ensure this permission is strictly necessary."
-                ))
-
-    if dangerous_count > 3:
-        findings.append(create_finding(
-            "Excessive dangerous permissions",
-            "High",
-            "M2: Insecure Data Storage",
-            "Application requests multiple dangerous permissions.",
-            "Follow the principle of least privilege."
-        ))
-
-    # -----------------------
-    # Exported Components (Improved)
-    # -----------------------
-
-    package_name = a.get_package()
-
-    manifest = a.get_android_manifest_xml()
-
-    for tag in ["activity", "service", "receiver", "provider"]:
-        for element in manifest.findall(f".//{tag}"):
-
-            exported = element.get("{http://schemas.android.com/apk/res/android}exported")
-            name = element.get("{http://schemas.android.com/apk/res/android}name")
-
-            if exported == "true" and name:
-
-                # Convert relative names (.MainActivity)
-                if name.startswith("."):
-                    name = package_name + name
-
-                # Only flag if component belongs to app package
-                if name.startswith(package_name):
-
+        for perm in permissions:
+            for dangerous in DANGEROUS_PERMISSIONS:
+                if dangerous in perm:
+                    dangerous_count += 1
                     findings.append(create_finding(
-                        f"Exported {tag} detected: {name}",
-                        "High",
-                        "M1: Improper Platform Usage",
-                        f"{tag} '{name}' is exported and may be externally accessible.",
-                        "Ensure exported components are protected with proper permissions."
+                        f"Dangerous permission detected: {dangerous}",
+                        "Medium",
+                        "M2: Insecure Data Storage",
+                        f"The app requests {dangerous}.",
+                        "Ensure this permission is strictly necessary."
                     ))
 
-    # ----------------------------------
-    # allowBackup Check
-    # ----------------------------------
+        if dangerous_count > 3:
+            findings.append(create_finding(
+                "Excessive dangerous permissions",
+                "High",
+                "M2: Insecure Data Storage",
+                "Application requests multiple dangerous permissions.",
+                "Follow the principle of least privilege."
+            ))
 
-    if a.get_attribute_value("application", "allowBackup") == "true":
+        # -----------------------
+        # Exported Components
+        # -----------------------
+
+        package_name = a.get_package()
+        manifest = a.get_android_manifest_xml()
+
+        for tag in ["activity", "service", "receiver", "provider"]:
+            for element in manifest.findall(f".//{tag}"):
+
+                exported = element.get("{http://schemas.android.com/apk/res/android}exported")
+                name = element.get("{http://schemas.android.com/apk/res/android}name")
+
+                if exported == "true" and name:
+                    # Convert relative names (.MainActivity)
+                    if name.startswith("."):
+                        name = package_name + name
+
+                    # Only flag if component belongs to app package
+                    if name.startswith(package_name):
+                        findings.append(create_finding(
+                            f"Exported {tag} detected: {name}",
+                            "High",
+                            "M1: Improper Platform Usage",
+                            f"{tag} '{name}' is exported and may be externally accessible.",
+                            "Ensure exported components are protected with proper permissions."
+                        ))
+
+        # ----------------------------------
+        # allowBackup Check
+        # ----------------------------------
+
+        if a.get_attribute_value("application", "allowBackup") == "true":
+            findings.append(create_finding(
+                "Application allows backup",
+                "Medium",
+                "M2: Insecure Data Storage",
+                "Application data can be backed up via ADB.",
+                "Set android:allowBackup=\"false\" in production."
+            ))
+
+        # ----------------------------------
+        # Cleartext Traffic & Network Security
+        # ----------------------------------
+
+        if a.get_attribute_value("application", "usesCleartextTraffic") == "true":
+            findings.append(create_finding(
+                "Cleartext traffic allowed",
+                "High",
+                "M3: Insecure Communication",
+                "Application allows HTTP traffic without encryption.",
+                "Disable cleartext traffic and enforce HTTPS."
+            ))
+            
+        # [ADDED] Network Security Config Check
+        if not a.get_attribute_value("application", "networkSecurityConfig"):
+            findings.append(create_finding(
+                "Missing Network Security Configuration",
+                "Low",
+                "M3: Insecure Communication",
+                "Application does not implement a custom network security configuration.",
+                "Define a networkSecurityConfig to enforce strict certificate pinning and HTTPS."
+            ))
+
+        # ----------------------------------
+        # DEX Scan Section
+        # ----------------------------------
+
+        secret_found = False
+        crypto_found = False
+        webview_js_found = False
+        webview_interface_found = False
+        webview_http_found = False
+        http_found = False
+        ip_found = False
+        firebase_found = False
+        aws_found = False
+        
+        # [ADDED] Trackers for new patterns
+        random_found = False
+        sql_found = False
+        log_found = False
+
+        for file_name in a.get_files():
+
+            if file_name.endswith(".dex"):
+
+                dex_data = a.get_file(file_name)
+
+                # Hardcoded Secrets
+                if not secret_found and re.search(SECRET_PATTERNS, dex_data, re.IGNORECASE):
+                    secret_found = True
+                    findings.append(create_finding(
+                        "Potential hardcoded secret detected",
+                        "Critical",
+                        "M9: Reverse Engineering",
+                        "Suspicious credential pattern found in DEX file.",
+                        "Move secrets to secure backend storage."
+                    ))
+
+                # Weak Crypto
+                if not crypto_found and re.search(WEAK_CRYPTO_PATTERNS, dex_data):
+                    crypto_found = True
+                    findings.append(create_finding(
+                        "Weak cryptographic algorithm detected",
+                        "High",
+                        "M5: Insufficient Cryptography",
+                        "Weak algorithm reference found (MD5/SHA1/DES).",
+                        "Use strong algorithms like SHA-256 or AES."
+                    ))
+
+                # WebView JavaScript
+                if not webview_js_found and re.search(WEBVIEW_JS_PATTERN, dex_data):
+                    webview_js_found = True
+                    findings.append(create_finding(
+                        "WebView JavaScript Enabled",
+                        "High",
+                        "M1: Improper Platform Usage",
+                        "WebView enables JavaScript which increases attack surface.",
+                        "Disable JavaScript unless absolutely necessary."
+                    ))
+
+                # WebView Interface
+                if not webview_interface_found and re.search(WEBVIEW_INTERFACE_PATTERN, dex_data):
+                    webview_interface_found = True
+                    findings.append(create_finding(
+                        "WebView JavaScript Interface Detected",
+                        "Critical",
+                        "M1: Improper Platform Usage",
+                        "addJavascriptInterface may allow code execution via WebView.",
+                        "Remove or properly secure JavaScript interfaces."
+                    ))
+
+                # WebView HTTP Load
+                if not webview_http_found and re.search(WEBVIEW_HTTP_PATTERN, dex_data):
+                    webview_http_found = True
+                    findings.append(create_finding(
+                        "WebView Loads HTTP Content",
+                        "High",
+                        "M3: Insecure Communication",
+                        "WebView loads content over HTTP.",
+                        "Use HTTPS to prevent man-in-the-middle attacks."
+                    ))
+
+                # Hardcoded HTTP URLs
+                if not http_found and re.search(HTTP_URL_PATTERN, dex_data):
+                    http_found = True
+                    findings.append(create_finding(
+                        "Hardcoded HTTP endpoint detected",
+                        "High",
+                        "M3: Insecure Communication",
+                        "Application contains hardcoded HTTP URL.",
+                        "Use HTTPS and avoid embedding sensitive endpoints."
+                    ))
+
+                # Raw IP Address
+                if not ip_found and re.search(IP_ADDRESS_PATTERN, dex_data):
+                    ip_found = True
+                    findings.append(create_finding(
+                        "Hardcoded IP address detected",
+                        "Medium",
+                        "M3: Insecure Communication",
+                        "Application contains raw IP address reference.",
+                        "Avoid embedding raw IP addresses inside application."
+                    ))
+
+                # Firebase Detection
+                if not firebase_found and re.search(FIREBASE_PATTERN, dex_data):
+                    firebase_found = True
+                    findings.append(create_finding(
+                        "Firebase backend reference detected",
+                        "Medium",
+                        "M2: Insecure Data Storage",
+                        "Firebase endpoint reference found in DEX file.",
+                        "Ensure Firebase security rules are properly configured."
+                    ))
+
+                # AWS Detection
+                if not aws_found and re.search(AWS_PATTERN, dex_data):
+                    aws_found = True
+                    findings.append(create_finding(
+                        "AWS S3 endpoint reference detected",
+                        "Medium",
+                        "M2: Insecure Data Storage",
+                        "AWS S3 bucket reference found in application.",
+                        "Ensure S3 buckets are private and access-controlled."
+                    ))
+
+                # [ADDED] Insecure Random Number Generation
+                if not random_found and re.search(INSECURE_RANDOM_PATTERN, dex_data):
+                    random_found = True
+                    findings.append(create_finding(
+                        "Insecure Random Number Generator",
+                        "Medium",
+                        "M5: Insufficient Cryptography",
+                        "Usage of java.util.Random detected, which is cryptographically insecure.",
+                        "Replace with java.security.SecureRandom for generating sensitive values."
+                    ))
+
+                # [ADDED] SQL Injection Vectors
+                if not sql_found and re.search(SQLITE_EXEC_PATTERN, dex_data):
+                    sql_found = True
+                    findings.append(create_finding(
+                        "Potential Local SQL Injection Vector",
+                        "Medium",
+                        "M7: Client Code Quality",
+                        "Raw SQLite execution methods (execSQL/rawQuery) detected.",
+                        "Ensure parameterized queries or an ORM like Room are used instead of string concatenation."
+                    ))
+
+                # [ADDED] Information Leakage via Logging
+                if not log_found and re.search(LOGGING_PATTERN, dex_data):
+                    log_found = True
+                    findings.append(create_finding(
+                        "Information Leakage via Logging",
+                        "Low",
+                        "M2: Insecure Data Storage",
+                        "Application uses standard Android logging (Log.d, Log.v) which may leak sensitive data to the system log.",
+                        "Remove log statements or use ProGuard to strip logging calls in release builds."
+                    ))
+
+    except Exception as e:
+        # [ADDED] Catch all errors and report them as a finding instead of a crash
         findings.append(create_finding(
-            "Application allows backup",
-            "Medium",
-            "M2: Insecure Data Storage",
-            "Application data can be backed up via ADB.",
-            "Set android:allowBackup=\"false\" in production."
+            "Corrupted or Malformed APK Payload",
+            "Critical",
+            "M10: Extraneous Functionality",
+            f"The analysis engine encountered a fatal error parsing the package structure. This is often a sign of intentional obfuscation or tampering. Details: {str(e)[:100]}",
+            "Verify the integrity of the uploaded package."
         ))
-
-    # ----------------------------------
-    # Cleartext Traffic
-    # ----------------------------------
-
-    if a.get_attribute_value("application", "usesCleartextTraffic") == "true":
-        findings.append(create_finding(
-            "Cleartext traffic allowed",
-            "High",
-            "M3: Insecure Communication",
-            "Application allows HTTP traffic without encryption.",
-            "Disable cleartext traffic and enforce HTTPS."
-        ))
-
-    # ----------------------------------
-    # DEX Scan Section
-    # ----------------------------------
-
-    secret_found = False
-    crypto_found = False
-    webview_js_found = False
-    webview_interface_found = False
-    webview_http_found = False
-    http_found = False
-    ip_found = False
-    firebase_found = False
-    aws_found = False
-
-    for file_name in a.get_files():
-
-        if file_name.endswith(".dex"):
-
-            dex_data = a.get_file(file_name)
-
-            # Hardcoded Secrets
-            if not secret_found and re.search(SECRET_PATTERNS, dex_data, re.IGNORECASE):
-                secret_found = True
-                findings.append(create_finding(
-                    "Potential hardcoded secret detected",
-                    "Critical",
-                    "M9: Reverse Engineering",
-                    "Suspicious credential pattern found in DEX file.",
-                    "Move secrets to secure backend storage."
-                ))
-
-            # Weak Crypto
-            if not crypto_found and re.search(WEAK_CRYPTO_PATTERNS, dex_data):
-                crypto_found = True
-                findings.append(create_finding(
-                    "Weak cryptographic algorithm detected",
-                    "High",
-                    "M5: Insufficient Cryptography",
-                    "Weak algorithm reference found (MD5/SHA1/DES).",
-                    "Use strong algorithms like SHA-256 or AES."
-                ))
-
-            # WebView JavaScript
-            if not webview_js_found and re.search(WEBVIEW_JS_PATTERN, dex_data):
-                webview_js_found = True
-                findings.append(create_finding(
-                    "WebView JavaScript Enabled",
-                    "High",
-                    "M1: Improper Platform Usage",
-                    "WebView enables JavaScript which increases attack surface.",
-                    "Disable JavaScript unless absolutely necessary."
-                ))
-
-            # WebView Interface
-            if not webview_interface_found and re.search(WEBVIEW_INTERFACE_PATTERN, dex_data):
-                webview_interface_found = True
-                findings.append(create_finding(
-                    "WebView JavaScript Interface Detected",
-                    "Critical",
-                    "M1: Improper Platform Usage",
-                    "addJavascriptInterface may allow code execution via WebView.",
-                    "Remove or properly secure JavaScript interfaces."
-                ))
-
-            # WebView HTTP Load
-            if not webview_http_found and re.search(WEBVIEW_HTTP_PATTERN, dex_data):
-                webview_http_found = True
-                findings.append(create_finding(
-                    "WebView Loads HTTP Content",
-                    "High",
-                    "M3: Insecure Communication",
-                    "WebView loads content over HTTP.",
-                    "Use HTTPS to prevent man-in-the-middle attacks."
-                ))
-
-            # Hardcoded HTTP URLs
-            if not http_found and re.search(HTTP_URL_PATTERN, dex_data):
-                http_found = True
-                findings.append(create_finding(
-                    "Hardcoded HTTP endpoint detected",
-                    "High",
-                    "M3: Insecure Communication",
-                    "Application contains hardcoded HTTP URL.",
-                    "Use HTTPS and avoid embedding sensitive endpoints."
-                ))
-
-            # Raw IP Address
-            if not ip_found and re.search(IP_ADDRESS_PATTERN, dex_data):
-                ip_found = True
-                findings.append(create_finding(
-                    "Hardcoded IP address detected",
-                    "Medium",
-                    "M3: Insecure Communication",
-                    "Application contains raw IP address reference.",
-                    "Avoid embedding raw IP addresses inside application."
-                ))
-
-            # Firebase Detection
-            if not firebase_found and re.search(FIREBASE_PATTERN, dex_data):
-                firebase_found = True
-                findings.append(create_finding(
-                    "Firebase backend reference detected",
-                    "Medium",
-                    "M2: Insecure Data Storage",
-                    "Firebase endpoint reference found in DEX file.",
-                    "Ensure Firebase security rules are properly configured."
-                ))
-
-            # AWS Detection
-            if not aws_found and re.search(AWS_PATTERN, dex_data):
-                aws_found = True
-                findings.append(create_finding(
-                    "AWS S3 endpoint reference detected",
-                    "Medium",
-                    "M2: Insecure Data Storage",
-                    "AWS S3 bucket reference found in application.",
-                    "Ensure S3 buckets are private and access-controlled."
-                ))
+        metadata = {
+            "package_name": "Unknown",
+            "version_name": "Error",
+            "Status": "Parsing Failed"
+        }
 
     return findings, metadata

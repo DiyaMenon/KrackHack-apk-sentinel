@@ -1,10 +1,9 @@
 from datetime import datetime
 import json
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
-
 
 SEVERITY_SCORES = {
     "Critical": 10,
@@ -13,78 +12,139 @@ SEVERITY_SCORES = {
     "Low": 1
 }
 
-
 # ----------------------------------
 # Risk Justification Engine
 # ----------------------------------
 
 def generate_risk_justification(total_score, critical_count, high_count):
     if critical_count > 0:
-        return "Critical vulnerabilities detected. Immediate remediation required."
+        return "Critical vulnerabilities detected. Immediate remediation is strictly required before any production deployment."
     if high_count >= 5:
-        return "Multiple high severity issues significantly increase attack surface."
+        return "Multiple high-severity issues identified. Attack surface is significantly expanded, risking data exposure."
     if total_score > 50:
-        return "Accumulated risk score indicates serious security misconfigurations."
-    return "Risk level based on detected vulnerabilities and severity distribution."
-
+        return "Accumulated risk score indicates widespread security misconfigurations across the application architecture."
+    return "Acceptable baseline security posture. Standard remediation of medium/low findings is recommended during the next sprint."
 
 # ----------------------------------
-# PDF Generator
+# Premium PDF Generator
 # ----------------------------------
 
-def generate_pdf(findings, metadata, total_score, risk_level):
-    doc = SimpleDocTemplate("report.pdf", pagesize=letter)
+def generate_pdf(findings, metadata, total_score, risk_level, grade, risk_color_hex):
+    doc = SimpleDocTemplate("report.pdf", pagesize=letter, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
     styles = getSampleStyleSheet()
+    
+    # Custom PDF Styles
+    title_style = ParagraphStyle(
+        'MainTitle',
+        parent=styles['Title'],
+        fontName='Helvetica-Bold',
+        fontSize=24,
+        textColor=colors.HexColor('#0f172a'),
+        spaceAfter=20
+    )
+    
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        fontName='Helvetica-Bold',
+        fontSize=14,
+        textColor=colors.HexColor('#1e293b'),
+        spaceBefore=20,
+        spaceAfter=10,
+        borderPadding=10,
+    )
+
+    normal_style = styles["Normal"]
     elements = []
 
-    elements.append(Paragraph("APK Sentinel Security Report", styles["Title"]))
-    elements.append(Spacer(1, 12))
+    # --- COVER SECTION ---
+    elements.append(Paragraph("🔒 APK Sentinel Security Audit", title_style))
+    elements.append(Paragraph(f"<b>Generated:</b> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", normal_style))
+    elements.append(Spacer(1, 20))
 
-    elements.append(Paragraph(f"Risk Level: {risk_level}", styles["Normal"]))
-    elements.append(Paragraph(f"Total Risk Score: {total_score}", styles["Normal"]))
-    elements.append(Spacer(1, 12))
+    # --- METADATA & RISK SCORE TABLE ---
+    summary_data = [
+        ["Target Package", metadata.get('package_name', 'N/A'), "Risk Level", risk_level],
+        ["App Version", metadata.get('version_name', 'N/A'), "Security Grade", grade],
+        ["Target SDK", metadata.get('target_sdk', 'N/A'), "Total Score", str(total_score)]
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[100, 160, 100, 160])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#f8fafc')),
+        ('BACKGROUND', (2, 0), (2, -1), colors.HexColor('#f8fafc')),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#334155')),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTNAME', (2, 0), (2, -1), 'Helvetica-Bold'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+        ('TOPPADDING', (0, 0), (-1, -1), 10),
+        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e2e8f0')),
+    ]))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 30))
 
-    elements.append(Paragraph("Application Metadata", styles["Heading2"]))
-    elements.append(Paragraph(f"Package: {metadata['package_name']}", styles["Normal"]))
-    elements.append(Paragraph(f"Version: {metadata['version_name']}", styles["Normal"]))
-    elements.append(Paragraph(f"Min SDK: {metadata['min_sdk']}", styles["Normal"]))
-    elements.append(Spacer(1, 12))
-
-    elements.append(Paragraph("Findings", styles["Heading2"]))
-    elements.append(Spacer(1, 8))
+    # --- DETAILED FINDINGS ---
+    elements.append(Paragraph("Detailed Vulnerability Findings", heading_style))
+    
+    color_map = {
+        "Critical": colors.HexColor("#ef4444"),
+        "High": colors.HexColor("#f97316"),
+        "Medium": colors.HexColor("#3b82f6"),
+        "Low": colors.HexColor("#10b981")
+    }
 
     for f in findings:
-        elements.append(Paragraph(f"[{f['severity']}] {f['title']}", styles["Normal"]))
-        elements.append(Paragraph(f"Description: {f['description']}", styles["Normal"]))
-        elements.append(Paragraph(f"Remediation: {f['remediation']}", styles["Normal"]))
-        elements.append(Spacer(1, 8))
+        sev_color = color_map.get(f['severity'], colors.gray)
+        
+        finding_data = [
+            [Paragraph(f"<b>[{f['severity'].upper()}] {f['title']}</b>", styles['Normal']), ""],
+            ["OWASP Category", Paragraph(f['owasp'], styles['Normal'])],
+            ["Description", Paragraph(f['description'], styles['Normal'])],
+            ["Remediation", Paragraph(f['remediation'], styles['Normal'])]
+        ]
+        
+        t = Table(finding_data, colWidths=[100, 420])
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), sev_color),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('SPAN', (0, 0), (1, 0)), 
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('BACKGROUND', (0, 1), (0, -1), colors.HexColor('#f8fafc')),
+            ('FONTNAME', (0, 1), (0, -1), 'Helvetica-Bold'),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#e2e8f0')),
+            ('PADDING', (0, 0), (-1, -1), 8),
+        ]))
+        
+        elements.append(t)
+        elements.append(Spacer(1, 15))
 
     doc.build(elements)
 
 
 # ----------------------------------
-# Main Report Generator
+# Main Report Generator (HTML/JSON)
 # ----------------------------------
 
 def generate_report(findings, metadata, output_file="report.html"):
 
     total_score = sum(SEVERITY_SCORES.get(f["severity"], 0) for f in findings)
 
+    # Dark Mode Color scaling
     if total_score > 60:
-        risk_level = "High Risk"
-        risk_color = "#ef4444"
-        risk_bg = "rgba(239, 68, 68, 0.1)"
-        accent = "#dc2626"
+        risk_level = "Critical Risk"
+        risk_color = "#ef4444" # Bright Red
+        risk_bg = "rgba(239, 68, 68, 0.15)" # Translucent Red Overlay
     elif total_score > 25:
-        risk_level = "Medium Risk"
-        risk_color = "#f59e0b"
-        risk_bg = "rgba(245, 158, 11, 0.1)"
-        accent = "#d97706"
+        risk_level = "Elevated Risk"
+        risk_color = "#f97316" # Bright Orange
+        risk_bg = "rgba(249, 115, 22, 0.15)"
     else:
-        risk_level = "Low Risk"
-        risk_color = "#10b981"
-        risk_bg = "rgba(16, 185, 129, 0.1)"
-        accent = "#059669"
+        risk_level = "Acceptable Risk"
+        risk_color = "#10b981" # Bright Green
+        risk_bg = "rgba(16, 185, 129, 0.15)"
 
     critical_count = sum(1 for f in findings if f["severity"] == "Critical")
     high_count = sum(1 for f in findings if f["severity"] == "High")
@@ -115,867 +175,394 @@ def generate_report(findings, metadata, output_file="report.html"):
         }, f, indent=4)
 
     # Generate PDF
-    generate_pdf(findings, metadata, total_score, risk_level)
+    generate_pdf(findings, metadata, total_score, risk_level, grade, risk_color)
 
+    # --- HTML DARK MODE WHITEPAPER GENERATION ---
     html = f"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>APK Sentinel Security Report</title>
+    <title>APK Sentinel | Audit Report</title>
     <style>
-        * {{
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }}
-
-        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;600&display=swap');
 
         :root {{
             --primary: {risk_color};
-            --primary-light: {risk_bg};
-            --accent: {accent};
-            --dark: #0f172a;
-            --slate-900: #0f172a;
-            --slate-800: #1e293b;
-            --slate-700: #334155;
-            --slate-600: #475569;
-            --slate-400: #94a3b8;
-            --slate-200: #e2e8f0;
-            --slate-100: #f1f5f9;
-            --white: #ffffff;
+            --bg-color: #0b0f19;        /* Deep space background */
+            --doc-bg: #111827;          /* Dark paper background */
+            --panel-bg: #1f2937;        /* Slightly lighter dark for headers/tables */
+            --text-main: #f3f4f6;       /* Crisp off-white text */
+            --text-muted: #9ca3af;      /* Muted gray text */
+            --border: #374151;          /* Dark gray borders */
         }}
+
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
 
         body {{
-            font-family: 'Outfit', sans-serif;
-            background: linear-gradient(135deg, #0f172a 0%, #1a1f35 100%);
-            color: var(--slate-600);
-            min-height: 100vh;
-            overflow-x: hidden;
-        }}
-
-        .container {{
-            max-width: 1200px;
-            margin: 0 auto;
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.6;
             padding: 40px 20px;
         }}
 
-        /* Header Section */
-        .header {{
+        /* The 'Physical Paper' Container */
+        .document-container {{
+            max-width: 900px;
+            margin: 0 auto;
+            background: var(--doc-bg);
+            padding: 60px 80px;
+            border-radius: 8px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+            border-top: 8px solid var(--primary);
+            border-left: 1px solid var(--border);
+            border-right: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+        }}
+
+        /* Header / Letterhead */
+        .letterhead {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
             margin-bottom: 50px;
-            animation: slideDown 0.6s ease-out;
+            padding-bottom: 30px;
+            border-bottom: 2px solid var(--border);
         }}
 
-        .header-top {{
-            display: flex;
-            align-items: center;
-            gap: 20px;
-            margin-bottom: 30px;
-        }}
-
-        .logo-icon {{
-            width: 60px;
-            height: 60px;
-            background: linear-gradient(135deg, {risk_color} 0%, {accent} 100%);
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 32px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-        }}
-
-        .header-text h1 {{
-            font-size: 42px;
+        .brand h1 {{
+            font-size: 28px;
             font-weight: 700;
-            background: linear-gradient(135deg, var(--white) 0%, var(--slate-200) 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            margin-bottom: 8px;
+            color: var(--text-main);
             letter-spacing: -0.5px;
-        }}
-
-        .header-text p {{
-            color: var(--slate-400);
-            font-size: 14px;
-            font-weight: 300;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }}
-
-        /* Risk Banner */
-        .risk-banner {{
-            background: linear-gradient(135deg, {risk_color} 0%, {accent} 100%);
-            border-radius: 16px;
-            padding: 40px;
-            margin-bottom: 40px;
-            color: white;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-            position: relative;
-            overflow: hidden;
-            animation: slideUp 0.7s ease-out;
-        }}
-
-        .risk-banner::before {{
-            content: '';
-            position: absolute;
-            top: -50%;
-            right: -10%;
-            width: 300px;
-            height: 300px;
-            background: rgba(255,255,255,0.1);
-            border-radius: 50%;
-            animation: float 6s ease-in-out infinite;
-        }}
-
-        .risk-content {{
-            position: relative;
-            z-index: 2;
-        }}
-
-        .risk-label {{
-            font-size: 12px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            opacity: 0.9;
-            margin-bottom: 12px;
-        }}
-
-        .risk-level {{
-            font-size: 48px;
-            font-weight: 700;
-            margin-bottom: 20px;
-            letter-spacing: -1px;
-        }}
-
-        .risk-score {{
-            display: flex;
-            gap: 40px;
-            flex-wrap: wrap;
-        }}
-
-        .score-item {{
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }}
-
-        .score-number {{
-            font-size: 32px;
-            font-weight: 700;
-            font-family: 'JetBrains Mono', monospace;
-        }}
-
-        .score-label {{
-            font-size: 13px;
-            opacity: 0.85;
-            text-transform: uppercase;
-            font-weight: 500;
-        }}
-
-        /* Progress Bar */
-        .progress-section {{
-            margin-bottom: 40px;
-            animation: slideUp 0.8s ease-out 0.1s backwards;
-        }}
-
-        .progress-label {{
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 12px;
-        }}
-
-        .progress-label-text {{
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--slate-300);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }}
-
-        .progress-value {{
-            font-size: 18px;
-            font-weight: 700;
-            color: white;
-            font-family: 'JetBrains Mono', monospace;
-        }}
-
-        .progress {{
-            height: 24px;
-            background: rgba(255,255,255,0.05);
-            border-radius: 12px;
-            overflow: hidden;
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255,255,255,0.1);
-        }}
-
-        .progress-fill {{
-            height: 100%;
-            width: {min(total_score,100)}%;
-            background: linear-gradient(90deg, {risk_color} 0%, {accent} 100%);
-            border-radius: 12px;
-            transition: width 1.5s cubic-bezier(0.34, 1.56, 0.64, 1);
-            box-shadow: 0 0 20px rgba(0,0,0,0.3);
-        }}
-
-        /* Cards Grid */
-        .cards-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 20px;
-            margin-bottom: 40px;
-            animation: slideUp 0.8s ease-out 0.15s backwards;
-        }}
-
-        .card {{
-            background: linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 12px;
-            padding: 28px;
-            backdrop-filter: blur(10px);
-            transition: all 0.3s ease;
-        }}
-
-        .card:hover {{
-            border-color: {risk_color};
-            background: linear-gradient(135deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.04) 100%);
-            transform: translateY(-4px);
-            box-shadow: 0 12px 32px rgba(0,0,0,0.2);
-        }}
-
-        .card-icon {{
-            width: 48px;
-            height: 48px;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-bottom: 16px;
-            font-size: 24px;
-        }}
-
-        .card.critical .card-icon {{
-            background: rgba(239, 68, 68, 0.15);
-        }}
-
-        .card.high .card-icon {{
-            background: rgba(245, 158, 11, 0.15);
-        }}
-
-        .card.medium .card-icon {{
-            background: rgba(59, 130, 246, 0.15);
-        }}
-
-        .card.low .card-icon {{
-            background: rgba(16, 185, 129, 0.15);
-        }}
-
-        .card-label {{
-            font-size: 12px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: var(--slate-400);
-            margin-bottom: 8px;
-        }}
-
-        .card-value {{
-            font-size: 36px;
-            font-weight: 700;
-            color: white;
-            font-family: 'JetBrains Mono', monospace;
-        }}
-
-        /* Metadata Section */
-        .section {{
-            background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.01) 100%);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 16px;
-            padding: 36px;
-            margin-bottom: 30px;
-            backdrop-filter: blur(10px);
-            animation: slideUp 0.8s ease-out 0.2s backwards;
-        }}
-
-        .section-title {{
-            font-size: 20px;
-            font-weight: 700;
-            color: white;
-            margin-bottom: 24px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }}
-
-        .section-title::before {{
-            content: '';
-            display: inline-block;
-            width: 4px;
-            height: 24px;
-            background: linear-gradient(180deg, {risk_color} 0%, {accent} 100%);
-            border-radius: 2px;
-        }}
-
-        .metadata-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 20px;
-        }}
-
-        .metadata-item {{
-            display: flex;
-            flex-direction: column;
-        }}
-
-        .metadata-key {{
-            font-size: 12px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: var(--slate-400);
-            margin-bottom: 8px;
-        }}
-
-        .metadata-value {{
-            font-size: 15px;
-            font-weight: 600;
-            color: white;
-            font-family: 'JetBrains Mono', monospace;
-            word-break: break-all;
-        }}
-
-        /* Search Bar */
-        .search-container {{
-            margin-bottom: 30px;
-            animation: slideUp 0.8s ease-out 0.25s backwards;
-        }}
-
-        .search-box {{
-            width: 100%;
-            padding: 14px 20px;
-            background: linear-gradient(135deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.02) 100%);
-            border: 1px solid rgba(255,255,255,0.15);
-            border-radius: 12px;
-            color: white;
-            font-family: 'Outfit', sans-serif;
-            font-size: 15px;
-            transition: all 0.3s ease;
-            backdrop-filter: blur(10px);
-        }}
-
-        .search-box:focus {{
-            outline: none;
-            border-color: {risk_color};
-            background: linear-gradient(135deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.04) 100%);
-            box-shadow: 0 0 20px rgba({risk_color}, 0.2);
-        }}
-
-        .search-box::placeholder {{
-            color: var(--slate-500);
-        }}
-
-        /* Findings */
-        .finding {{
-            background: linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.01) 100%);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-left: 4px solid var(--primary);
-            border-radius: 12px;
-            margin-bottom: 16px;
-            overflow: hidden;
-            backdrop-filter: blur(10px);
-            transition: all 0.3s ease;
-            animation: slideUp 0.6s ease-out backwards;
-        }}
-
-        .finding:nth-child(1) {{ animation-delay: 0.3s; }}
-        .finding:nth-child(2) {{ animation-delay: 0.35s; }}
-        .finding:nth-child(3) {{ animation-delay: 0.4s; }}
-        .finding:nth-child(4) {{ animation-delay: 0.45s; }}
-        .finding:nth-child(5) {{ animation-delay: 0.5s; }}
-
-        .finding.critical {{
-            border-left-color: #ef4444;
-        }}
-
-        .finding.high {{
-            border-left-color: #f59e0b;
-        }}
-
-        .finding.medium {{
-            border-left-color: #3b82f6;
-        }}
-
-        .finding.low {{
-            border-left-color: #10b981;
-        }}
-
-        .finding:hover {{
-            transform: translateX(4px);
-            border-color: var(--primary);
-            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-        }}
-
-        .finding-header {{
-            background: linear-gradient(90deg, rgba(0,0,0,0.2) 0%, rgba(0,0,0,0.05) 100%);
-            padding: 18px 24px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            user-select: none;
-            transition: all 0.3s ease;
-        }}
-
-        .finding-header:hover {{
-            background: linear-gradient(90deg, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.1) 100%);
-        }}
-
-        .finding-title {{
-            font-size: 15px;
-            font-weight: 600;
-            color: white;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            flex: 1;
-        }}
-
-        .finding-severity {{
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            padding: 6px 12px;
-            border-radius: 6px;
-            background: var(--primary-light);
-            color: var(--primary);
-            margin-right: 12px;
-        }}
-
-        .finding-toggle {{
-            font-size: 16px;
-            color: var(--slate-400);
-            transition: transform 0.3s ease;
-        }}
-
-        .finding-body {{
-            display: none;
-            padding: 24px;
-            background: rgba(0,0,0,0.2);
-            border-top: 1px solid rgba(255,255,255,0.1);
-        }}
-
-        .finding-body.active {{
-            display: block;
-            animation: slideDown 0.3s ease-out;
-        }}
-
-        .finding-detail {{
-            margin-bottom: 16px;
-        }}
-
-        .finding-detail:last-child {{
-            margin-bottom: 0;
-        }}
-
-        .finding-detail-label {{
-            font-size: 12px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            color: var(--slate-400);
-            margin-bottom: 8px;
-        }}
-
-        .finding-detail-text {{
-            font-size: 14px;
-            color: var(--slate-100);
-            line-height: 1.6;
-        }}
-
-        /* Download Buttons */
-        .download-buttons {{
-            display: flex;
-            gap: 12px;
-            flex-wrap: wrap;
-            margin-bottom: 40px;
-            animation: slideUp 0.8s ease-out 0.3s backwards;
-        }}
-
-        .btn {{
-            padding: 12px 24px;
-            border: none;
-            border-radius: 10px;
-            font-family: 'Outfit', sans-serif;
-            font-size: 14px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            white-space: nowrap;
-        }}
-
-        .btn-primary {{
-            background: linear-gradient(135deg, {risk_color} 0%, {accent} 100%);
-            color: white;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
-        }}
-
-        .btn-primary:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 12px 32px rgba(0,0,0,0.3);
-        }}
-
-        .btn-secondary {{
-            background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%);
-            color: white;
-            border: 1px solid rgba(255,255,255,0.2);
-        }}
-
-        .btn-secondary:hover {{
-            background: linear-gradient(135deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.08) 100%);
-            border-color: {risk_color};
-            transform: translateY(-2px);
-        }}
-
-        /* Grade Badge */
-        .grade-badge {{
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 100px;
-            height: 100px;
-            border-radius: 12px;
-            background: linear-gradient(135deg, {risk_color} 0%, {accent} 100%);
-            color: white;
-            font-size: 48px;
-            font-weight: 700;
-            font-family: 'JetBrains Mono', monospace;
-            box-shadow: 0 12px 32px rgba(0,0,0,0.2);
-        }}
-
-        /* Animations */
-        @keyframes slideDown {{
-            from {{
-                opacity: 0;
-                transform: translateY(-20px);
-            }}
-            to {{
-                opacity: 1;
-                transform: translateY(0);
-            }}
-        }}
-
-        @keyframes slideUp {{
-            from {{
-                opacity: 0;
-                transform: translateY(20px);
-            }}
-            to {{
-                opacity: 1;
-                transform: translateY(0);
-            }}
-        }}
-
-        @keyframes float {{
-            0%, 100% {{ transform: translateY(0px); }}
-            50% {{ transform: translateY(20px); }}
-        }}
-
-        /* Summary Stats */
-        .summary-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-            gap: 16px;
-            margin-top: 24px;
-        }}
-
-        .summary-stat {{
-            background: rgba(0,0,0,0.2);
-            padding: 16px;
-            border-radius: 10px;
-            border: 1px solid rgba(255,255,255,0.05);
-            text-align: center;
-        }}
-
-        .summary-stat-value {{
-            font-size: 24px;
-            font-weight: 700;
-            color: white;
-            font-family: 'JetBrains Mono', monospace;
             margin-bottom: 4px;
         }}
 
-        .summary-stat-label {{
-            font-size: 11px;
-            font-weight: 600;
+        .brand p {{
+            font-size: 14px;
+            color: var(--text-muted);
             text-transform: uppercase;
-            letter-spacing: 0.5px;
-            color: var(--slate-400);
+            letter-spacing: 1.5px;
+            font-weight: 600;
         }}
 
-        /* Responsive */
-        @media (max-width: 768px) {{
-            .header-top {{
-                flex-direction: column;
-                align-items: flex-start;
-            }}
+        .meta-stamp {{
+            text-align: right;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            color: var(--text-muted);
+        }}
 
-            .header-text h1 {{
-                font-size: 32px;
-            }}
+        /* Executive Summary Banner */
+        .exec-summary {{
+            background: {risk_bg};
+            border: 1px solid var(--primary);
+            border-radius: 8px;
+            padding: 30px;
+            margin-bottom: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }}
 
-            .risk-level {{
-                font-size: 36px;
-            }}
+        .grade-circle {{
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: var(--primary);
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            font-weight: 700;
+            box-shadow: 0 0 20px {risk_bg};
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }}
 
-            .cards-grid {{
-                grid-template-columns: 1fr;
-            }}
+        .exec-details h2 {{
+            font-size: 24px;
+            color: var(--primary);
+            margin-bottom: 8px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }}
 
-            .metadata-grid {{
-                grid-template-columns: 1fr;
-            }}
+        .exec-details p {{
+            font-size: 15px;
+            color: var(--text-main);
+            max-width: 500px;
+        }}
 
-            .download-buttons {{
-                flex-direction: column;
-            }}
+        /* Stats Grid */
+        .stats-grid {{
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            margin-bottom: 40px;
+        }}
 
-            .btn {{
-                width: 100%;
-                justify-content: center;
+        .stat-box {{
+            background: var(--panel-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 20px;
+            text-align: center;
+        }}
+
+        .stat-number {{
+            font-size: 32px;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text-main);
+        }}
+
+        .stat-label {{
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-top: 4px;
+        }}
+
+        /* Tables */
+        h3.section-title {{
+            font-size: 18px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+            margin-bottom: 20px;
+            margin-top: 40px;
+        }}
+
+        .info-table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 40px;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }}
+
+        .info-table th, .info-table td {{
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border);
+            text-align: left;
+            font-size: 14px;
+        }}
+
+        .info-table th {{
+            width: 30%;
+            background: var(--panel-bg);
+            color: var(--text-muted);
+            font-weight: 600;
+        }}
+
+        .info-table td {{
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text-main);
+            word-break: break-all;
+            background: var(--doc-bg);
+        }}
+
+        /* Vulnerability Findings Styling */
+        .finding-card {{
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 24px;
+            overflow: hidden;
+            page-break-inside: avoid;
+            background: var(--doc-bg);
+        }}
+
+        .finding-header {{
+            padding: 16px 20px;
+            background: var(--panel-bg);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }}
+
+        .severity-badge {{
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            color: #ffffff;
+            letter-spacing: 0.5px;
+        }}
+        .badge-critical {{ background-color: #ef4444; box-shadow: 0 0 10px rgba(239,68,68,0.3); }}
+        .badge-high {{ background-color: #f97316; box-shadow: 0 0 10px rgba(249,115,22,0.3); }}
+        .badge-medium {{ background-color: #3b82f6; box-shadow: 0 0 10px rgba(59,130,246,0.3); }}
+        .badge-low {{ background-color: #10b981; box-shadow: 0 0 10px rgba(16,185,129,0.3); }}
+
+        .finding-title {{
+            font-weight: 600;
+            font-size: 16px;
+            color: var(--text-main);
+        }}
+
+        .finding-body {{
+            padding: 0;
+        }}
+
+        .finding-row {{
+            display: flex;
+            border-bottom: 1px solid var(--border);
+        }}
+        .finding-row:last-child {{ border-bottom: none; }}
+
+        .row-label {{
+            width: 140px;
+            padding: 16px 20px;
+            background: var(--panel-bg);
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-muted);
+            border-right: 1px solid var(--border);
+        }}
+
+        .row-content {{
+            flex: 1;
+            padding: 16px 20px;
+            font-size: 14px;
+        }}
+
+        /* Print CSS: Forces white background and black text when exporting via browser! */
+        @media print {{
+            :root {{
+                --bg-color: #ffffff;
+                --doc-bg: #ffffff;
+                --panel-bg: #f8fafc;
+                --text-main: #000000;
+                --text-muted: #475569;
+                --border: #cbd5e1;
+            }}
+            body {{
+                background: white;
+                padding: 0;
+            }}
+            .document-container {{
+                box-shadow: none;
+                padding: 0;
+                border: none;
+                border-top: 8px solid var(--primary);
+                max-width: 100%;
+            }}
+            .finding-card {{
+                break-inside: avoid;
+            }}
+            .grade-circle {{
+                box-shadow: none;
+                text-shadow: none;
+            }}
+            .exec-details h2 {{
+                text-shadow: none;
             }}
         }}
     </style>
 </head>
-
 <body>
-    <div class="container">
-        <!-- Header -->
-        <div class="header">
-            <div class="header-top">
-                <div class="logo-icon">🔐</div>
-                <div class="header-text">
-                    <h1>APK Sentinel</h1>
-                    <p>Security Report</p>
-                </div>
+
+    <div class="document-container">
+        
+        <div class="letterhead">
+            <div class="brand">
+                <h1>APK Sentinel</h1>
+                <p>Automated Security Audit Report</p>
+            </div>
+            <div class="meta-stamp">
+                ID: {datetime.now().strftime('%Y%m%d')}-SAST<br>
+                DATE: {datetime.now().strftime('%b %d, %Y')}<br>
+                STATUS: FINAL
             </div>
         </div>
 
-        <!-- Risk Banner -->
-        <div class="risk-banner">
-            <div class="risk-content">
-                <div class="risk-label">Overall Assessment</div>
-                <div class="risk-level">{risk_level}</div>
-                <div class="risk-score">
-                    <div class="score-item">
-                        <div class="score-number">{total_score}</div>
-                        <div class="score-label">Risk Score</div>
-                    </div>
-                    <div class="score-item">
-                        <div class="score-number">{grade}</div>
-                        <div class="score-label">Security Grade</div>
-                    </div>
-                </div>
+        <div class="exec-summary">
+            <div class="exec-details">
+                <h2>{risk_level}</h2>
+                <p>{risk_reason}</p>
+            </div>
+            <div class="grade-circle">{grade}</div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-box">
+                <div class="stat-number">{critical_count}</div>
+                <div class="stat-label" style="color: #ef4444;">Critical</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number">{high_count}</div>
+                <div class="stat-label" style="color: #f97316;">High</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number">{medium_count}</div>
+                <div class="stat-label" style="color: #3b82f6;">Medium</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-number">{low_count}</div>
+                <div class="stat-label" style="color: #10b981;">Low</div>
             </div>
         </div>
 
-        <!-- Progress Bar -->
-        <div class="progress-section">
-            <div class="progress-label">
-                <span class="progress-label-text">Risk Score Distribution</span>
-                <span class="progress-value">{min(total_score, 100)}/100</span>
-            </div>
-            <div class="progress">
-                <div class="progress-fill"></div>
-            </div>
-        </div>
+        <h3 class="section-title">1. Target Information</h3>
+        <table class="info-table">
+            <tr>
+                <th>Package Name</th>
+                <td>{metadata.get('package_name', 'Unknown')}</td>
+            </tr>
+            <tr>
+                <th>Version String</th>
+                <td>{metadata.get('version_name', 'Unknown')}</td>
+            </tr>
+            <tr>
+                <th>Target SDK</th>
+                <td>API {metadata.get('target_sdk', 'Unknown')}</td>
+            </tr>
+            <tr>
+                <th>Permissions Requested</th>
+                <td>{metadata.get('permissions_count', 'Unknown')}</td>
+            </tr>
+        </table>
 
-        <!-- Statistics Cards -->
-        <div class="cards-grid">
-            <div class="card critical">
-                <div class="card-icon">🔴</div>
-                <div class="card-label">Critical</div>
-                <div class="card-value">{critical_count}</div>
-            </div>
-            <div class="card high">
-                <div class="card-icon">🟠</div>
-                <div class="card-label">High</div>
-                <div class="card-value">{high_count}</div>
-            </div>
-            <div class="card medium">
-                <div class="card-icon">🔵</div>
-                <div class="card-label">Medium</div>
-                <div class="card-value">{medium_count}</div>
-            </div>
-            <div class="card low">
-                <div class="card-icon">🟢</div>
-                <div class="card-label">Low</div>
-                <div class="card-value">{low_count}</div>
-            </div>
-        </div>
-
-        <!-- Download Section -->
-        <div class="download-buttons">
-            <button class="btn btn-primary" onclick="downloadFile('report.html')">📄 Download HTML</button>
-            <button class="btn btn-primary" onclick="downloadFile('report.pdf')">📋 Download PDF</button>
-            <button class="btn btn-primary" onclick="downloadFile('report.json')">📊 Download JSON</button>
-        </div>
-
-        <!-- Metadata Section -->
-        <div class="section">
-            <div class="section-title">Application Metadata</div>
-            <div class="metadata-grid">
-                <div class="metadata-item">
-                    <div class="metadata-key">Package Name</div>
-                    <div class="metadata-value">{metadata['package_name']}</div>
-                </div>
-                <div class="metadata-item">
-                    <div class="metadata-key">Version</div>
-                    <div class="metadata-value">{metadata['version_name']}</div>
-                </div>
-                <div class="metadata-item">
-                    <div class="metadata-key">Minimum SDK</div>
-                    <div class="metadata-value">{metadata['min_sdk']}</div>
-                </div>
-                <div class="metadata-item">
-                    <div class="metadata-key">Total Permissions</div>
-                    <div class="metadata-value">{metadata['permissions_count']}</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Summary Section -->
-        <div class="section">
-            <div class="section-title">Executive Summary</div>
-            <p style="color: var(--slate-200); line-height: 1.8; margin-bottom: 20px;">{risk_reason}</p>
-            <div class="summary-grid">
-                <div class="summary-stat">
-                    <div class="summary-stat-value">{total_score}</div>
-                    <div class="summary-stat-label">Risk Score</div>
-                </div>
-                <div class="summary-stat">
-                    <div class="summary-stat-value">{critical_count}</div>
-                    <div class="summary-stat-label">Critical</div>
-                </div>
-                <div class="summary-stat">
-                    <div class="summary-stat-value">{high_count}</div>
-                    <div class="summary-stat-label">High</div>
-                </div>
-                <div class="summary-stat">
-                    <div class="summary-stat-value">{medium_count}</div>
-                    <div class="summary-stat-label">Medium</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Search Section -->
-        <div class="search-container">
-            <input 
-                type="text" 
-                class="search-box" 
-                id="search" 
-                onkeyup="searchFindings()" 
-                placeholder="Search findings by title, description, or remediation..."
-            >
-        </div>
-
-        <!-- Findings Section -->
-        <div class="section">
-            <div class="section-title">Detailed Findings</div>
-            <div id="findingsContainer">
+        <h3 class="section-title">2. Vulnerability Log</h3>
 """
 
-    for i, f in enumerate(findings):
-        severity_class = f['severity'].lower()
+    # Generate Finding Cards
+    for f in findings:
+        sev_class = f"badge-{f['severity'].lower()}"
         html += f"""
-                <div class="finding {severity_class}">
-                    <div class="finding-header" onclick="toggleFinding(this)">
-                        <div class="finding-title">
-                            <span class="finding-severity">{f['severity']}</span>
-                            <span>{f['title']}</span>
-                        </div>
-                        <div class="finding-toggle">▼</div>
-                    </div>
-                    <div class="finding-body" data-searchtext="{f['title'].lower()} {f['description'].lower()} {f['remediation'].lower()}">
-                        <div class="finding-detail">
-                            <div class="finding-detail-label">OWASP Category</div>
-                            <div class="finding-detail-text">{f['owasp']}</div>
-                        </div>
-                        <div class="finding-detail">
-                            <div class="finding-detail-label">Description</div>
-                            <div class="finding-detail-text">{f['description']}</div>
-                        </div>
-                        <div class="finding-detail">
-                            <div class="finding-detail-label">Remediation</div>
-                            <div class="finding-detail-text">{f['remediation']}</div>
-                        </div>
-                    </div>
+        <div class="finding-card">
+            <div class="finding-header">
+                <span class="severity-badge {sev_class}">{f['severity']}</span>
+                <span class="finding-title">{f['title']}</span>
+            </div>
+            <div class="finding-body">
+                <div class="finding-row">
+                    <div class="row-label">Category</div>
+                    <div class="row-content" style="font-family: 'JetBrains Mono', monospace;">{f['owasp']}</div>
                 </div>
+                <div class="finding-row">
+                    <div class="row-label">Description</div>
+                    <div class="row-content">{f['description']}</div>
+                </div>
+                <div class="finding-row">
+                    <div class="row-label">Remediation</div>
+                    <div class="row-content" style="color: #34d399; font-weight: 500;">{f['remediation']}</div>
+                </div>
+            </div>
+        </div>
 """
 
     html += """
-            </div>
-        </div>
-
-        <!-- Footer -->
-        <div style="text-align: center; margin-top: 60px; padding-top: 40px; border-top: 1px solid rgba(255,255,255,0.1);">
-            <p style="color: var(--slate-400); font-size: 13px;">
-                Generated on """ + str(datetime.now()) + """<br>
-                APK Sentinel Security Report
-            </p>
+        <div style="text-align: center; margin-top: 50px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 12px;">
+            End of Report • Generated by APK Sentinel
         </div>
     </div>
 
-    <script>
-        function toggleFinding(element) {
-            const body = element.nextElementSibling;
-            const toggle = element.querySelector('.finding-toggle');
-            
-            body.classList.toggle('active');
-            toggle.style.transform = body.classList.contains('active') ? 'rotate(180deg)' : 'rotate(0deg)';
-        }
-
-        function searchFindings() {
-            const input = document.getElementById('search').value.toLowerCase();
-            const findings = document.querySelectorAll('.finding');
-            
-            findings.forEach(finding => {
-                const body = finding.querySelector('.finding-body');
-                const searchText = body.getAttribute('data-searchtext');
-                
-                if (searchText.includes(input) || input === '') {
-                    finding.style.display = 'block';
-                } else {
-                    finding.style.display = 'none';
-                }
-            });
-        }
-
-        function downloadFile(filename) {
-            const link = document.createElement('a');
-            link.href = filename;
-            link.download = filename;
-            link.click();
-        }
-
-        // Animate progress bar on load
-        window.addEventListener('load', () => {
-            const progressFill = document.querySelector('.progress-fill');
-            setTimeout(() => {
-                progressFill.style.width = '{min(total_score,100)}%';
-            }, 100);
-        });
-    </script>
 </body>
 </html>
 """
