@@ -109,6 +109,11 @@ with st.sidebar:
         st.warning("🟡 Waiting for payload")
         run_scan = False
 
+    # THE NEW AI TOGGLE SWITCH
+    st.markdown("---")
+    st.markdown("**Engine Settings:**")
+    use_ai = st.toggle("🧠 Enable AI Remediation", value=True) 
+
     st.markdown("---")
     st.caption("Developed for Hackathon Pitch")
 
@@ -144,8 +149,16 @@ elif run_scan or st.session_state.scan_completed:
             st.write("1️⃣ Extracting APK manifest and DEX files...")
             st.write("2️⃣ Running pattern matching for secrets and cloud endpoints...")
             
-            # Save the results to session memory
+            # 1. Run standard static analysis
             findings, metadata = analyze_apk(temp_path)
+            
+            # 2. THE AI HOOK: Route to AI engine if toggled on
+            if use_ai and findings:
+                from ai_remediation import enhance_findings_with_ai
+                st.write("🧠 Routing findings to AI Remediation Engine...")
+                findings = enhance_findings_with_ai(findings, st)
+            
+            # Save the final results to session memory
             st.session_state.findings = findings
             st.session_state.metadata = metadata
             

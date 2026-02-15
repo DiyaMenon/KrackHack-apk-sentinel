@@ -3,3 +3,5 @@ streamlit
 reportlab
 plotly
 pandas
+google-generativeai
+python-dotenv

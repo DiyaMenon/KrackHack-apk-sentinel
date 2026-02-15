@@ -6,3 +6,4 @@ report.html
 report.pdf
 report.json
 .vscode/
+.env
