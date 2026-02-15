@@ -1,2 +1,5 @@
 androguard
 streamlit
+reportlab
+plotly
+pandas
